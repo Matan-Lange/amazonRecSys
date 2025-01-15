@@ -20,7 +20,10 @@ class Trainer:
             device (str): Device to run the training on ('cuda' or 'cpu').
         """
         self.model = model.to(device)
-        self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        self.batch_size = batch_size
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.train_dataloader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
         self.val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         self.criterion = torch.nn.MSELoss()
         # weight_decay is better then L2 with Adam
@@ -100,5 +103,6 @@ if __name__ == "__main__":
 
     model = MfModel(train_dataset.get_num_users(), train_dataset.get_num_items(), emb_dim=50)
 
-    trainer = Trainer(model, train_dataset, val_dataset, batch_size=2048 * 2, lr=0.001, num_epochs=40)
+    trainer = Trainer(model, train_dataset, val_dataset, batch_size=2048 * 2, lr=0.01, num_epochs=40,
+                      weight_decay=1e-5)
     trainer.train()

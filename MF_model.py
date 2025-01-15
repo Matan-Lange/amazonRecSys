@@ -1,4 +1,7 @@
+import torch
 from torch import nn
+import torch.nn.init as init
+
 
 class MfModel(nn.Module):
     """
@@ -25,6 +28,12 @@ class MfModel(nn.Module):
         self.user_bias = nn.Embedding(num_embeddings=num_users, embedding_dim=1)
         self.item_bias = nn.Embedding(num_embeddings=num_items, embedding_dim=1)
 
+        # wieghts initialization
+        init.xavier_uniform_(self.user_emb.weight)
+        init.xavier_uniform_(self.item_emb.weight)
+        init.constant_(self.user_bias.weight, 0.0)
+        init.constant_(self.item_bias.weight, 0.0)
+
     def forward(self, user, item):
         """
         Forward pass for the model.
@@ -42,4 +51,7 @@ class MfModel(nn.Module):
         user_bias = self.user_bias(user).squeeze()
         item_bias = self.item_bias(item).squeeze()
         element_product = (user_emb * item_emb).sum(1)
-        return element_product + user_bias + item_bias
+        logit = element_product + user_bias + item_bias
+        # clip the rating to be between 1 and 5
+        rating = torch.sigmoid(logit) * 4 + 1
+        return rating
