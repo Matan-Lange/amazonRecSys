@@ -32,7 +32,12 @@ class Trainer:
         """
         Trains the model and logs the loss to wandb.
         """
-        wandb.init(project="matrix-factorization")
+        wandb.init(project="matrix-factorization", config={
+            "learning_rate": self.lr,
+            "weight_decay": self.weight_decay,
+            "batch_size": self.batch_size,
+            "num_epochs": self.num_epochs
+        })
         for epoch in range(self.num_epochs):
             self.model.train()
             total_train_loss = 0
