@@ -82,9 +82,9 @@ if __name__ == "__main__":
     load_dotenv()
     import pandas as pd
     from utils import regression_split_train_validation
-    from dataset import AmazonDataset
+    from MF.dataset import AmazonDataset
 
-    df = pd.read_csv("data/user_item_rating_train.csv")
+    df = pd.read_csv("../data/user_item_rating_train.csv")
 
     df_train, df_val = regression_split_train_validation(df)
 
@@ -99,10 +99,10 @@ if __name__ == "__main__":
     print(train_dataset.get_num_users())
     print(val_dataset.get_num_items())
     print(val_dataset.get_num_users())
-    from MF_model import MfModel
+    from MF.MF_model import MfModel
 
     model = MfModel(train_dataset.get_num_users(), train_dataset.get_num_items(), emb_dim=50)
 
-    trainer = Trainer(model, train_dataset, val_dataset, batch_size=2048 * 2, lr=0.01, num_epochs=40,
+    trainer = Trainer(model, train_dataset, val_dataset, batch_size=1024, lr=0.001, num_epochs=40,
                       weight_decay=1e-5)
     trainer.train()
