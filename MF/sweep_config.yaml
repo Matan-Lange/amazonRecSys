@@ -1,0 +1,43 @@
+program: MF/run_sweep.py
+command:
+  - /usr/bin/python3 # change this to the path of venv
+  - ${program}
+method: random
+metric:
+  goal: maximize
+  name: val_loss
+parameters:
+  batch_size:
+    values: [4096,8192,16384]
+  epochs:
+    value: 7
+  learning_rate:
+    values: [ 0.0001, 0.001]
+  emb_dim:
+    values: [ 8, 16, 32, 64, 128, 256, 512 ]
+  weight_decay:
+    values: [ 0.0001, 0.001, 0.01, 0.1]
+  biases:
+    values: [
+      [],
+      ['user'],
+      ['item'],
+      ['category'],
+      ['store'],
+      ['user', 'item'],
+      ['user', 'category'],
+      ['user', 'store'],
+      ['item', 'category'],
+      ['item', 'store'],
+      ['category', 'store'],
+      ['user', 'item', 'category'],
+      ['user', 'item', 'store'],
+      ['user', 'category', 'store'],
+      ['item', 'category', 'store'],
+      ['user', 'item', 'category', 'store']
+    ]
+
+
+
+
+

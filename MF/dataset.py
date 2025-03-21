@@ -1,80 +1,113 @@
 import torch
 from torch.utils.data import Dataset
 import pandas as pd
+import numpy as np
+from typing import Dict, Tuple, Union
+from pathlib import Path
+import json
+from utils import regression_split_train_validation
+
+
+class DatasetFactory:
+    """Factory class to create train/val/test datasets with consistent mappings."""
+
+    def __init__(self, train_events_path: Union[str, Path], test_events_path: Union[str, Path],
+                 metadata_path: Union[str, Path]):
+        self.train_events_path = Path(train_events_path)
+        self.test_events_path = Path(test_events_path)
+        self.metadata_path = Path(metadata_path)
+
+        # Load datasets
+        self.df_train_events = self._load_train_events()
+        self.df_test_events = self._load_test_events()
+        self.df_metadata = self._load_metadata()
+
+        # Create global hashmaps from training data only
+        self.hashmaps = self._create_global_hashmaps()
+
+    def _load_train_events(self) -> pd.DataFrame:
+        """Load training events data with timestamp."""
+        df = pd.read_csv(self.train_events_path)
+        return df[['user_id', 'parent_asin', 'rating', 'timestamp']]
+
+    def _load_test_events(self) -> pd.DataFrame:
+        """Load test events data without timestamp."""
+        df = pd.read_csv(self.test_events_path)
+        return df[['user_id', 'parent_asin', 'rating']]
+
+    def _load_metadata(self) -> pd.DataFrame:
+        """Load metadata."""
+        with open(self.metadata_path, "r") as file:
+            data = [json.loads(line) for line in file]
+        df = pd.DataFrame.from_records(data)
+        df['categories'] = df['categories'].astype(str)
+        return df[['parent_asin', 'categories', 'store']]
+
+    def _create_global_hashmaps(self) -> Dict:
+        """Create global hashmaps from training dataset only."""
+        df_merged = self.df_train_events.merge(self.df_metadata, on='parent_asin', how='left')
+        return {
+            'user': {val: idx for idx, val in enumerate(df_merged.user_id.unique())},
+            'item': {val: idx for idx, val in enumerate(df_merged.parent_asin.unique())},
+            'category': {val: idx for idx, val in enumerate(df_merged.categories.unique())},
+            'store': {val: idx for idx, val in enumerate(df_merged.store.unique())}
+        }
+
+    def create_datasets(self) -> Tuple['AmazonDataset', 'AmazonDataset', 'AmazonDataset']:
+        """Create train/val/test datasets using regression split for train/val."""
+        # Split train into train and validation
+        df_train, df_val = regression_split_train_validation(self.df_train_events)
+
+        train_dataset = AmazonDataset(df_train, self.df_metadata, self.hashmaps)
+        val_dataset = AmazonDataset(df_val, self.df_metadata, self.hashmaps)
+        test_dataset = AmazonDataset(self.df_test_events, self.df_metadata, self.hashmaps)
+
+        return train_dataset, val_dataset, test_dataset
 
 
 class AmazonDataset(Dataset):
-    def __init__(self, df: pd.DataFrame):
-        """
-        Initializes the dataset with user, item, and rating data.
+    """PyTorch Dataset for Amazon product ratings with metadata."""
 
-        Args:
-            df (pd.DataFrame): DataFrame containing user_id, parent_asin, and rating columns.
+    def __init__(self, df_events: pd.DataFrame, df_metadata: pd.DataFrame, hashmaps: Dict):
+        """
+        Initialize the dataset.
+
+        Parameters:
+            df_events: DataFrame containing user-item interactions
+            df_metadata: DataFrame containing item metadata
+            hashmaps: Dictionary of id mappings from factory
         """
         super().__init__()
-        self.df = df[['user_id', 'parent_asin', 'rating']]
-        self.users = df.user_id.values
-        self.items = df.parent_asin.values
-        self.y_rating = self.df.rating.values
-
-        # Convert user and item strings to ids & keep map for inference
-        self.user_hashmap = self.create_id_map(self.df.user_id)
-        self.item_hashmap = self.create_id_map(self.df.parent_asin)
-
-    @staticmethod
-    def create_id_map(ids: pd.Series) -> dict:
-        """
-        Creates a mapping from unique ids to integer indices.
-
-        Args:
-            ids (pd.Series): Series of ids.
-
-        Returns:
-            dict: Mapping from id to index.
-        """
-        ids = ids.unique()
-        return {id: i for i, id in enumerate(ids)}
+        self.hashmaps = hashmaps
+        self.df = df_events.merge(df_metadata, on='parent_asin', how='left')
 
     def __len__(self) -> int:
-        """
-        Returns the length of the dataset.
-        """
         return len(self.df)
 
-    def get_num_users(self) -> int:
-        """
-        Returns the number of unique users.
-        """
-        return len(self.user_hashmap)
+    def __getitem__(self, idx: int) -> Tuple:
+        row = self.df.iloc[idx]
+        return (
+            self.hashmaps['user'].get(row.user_id, -1),
+            self.hashmaps['item'].get(row.parent_asin, -1),
+            self.hashmaps['category'].get(row.categories, -1),
+            self.hashmaps['store'].get(row.store, -1),
+            torch.tensor(row.rating, dtype=torch.float32)
+        )
 
-    def get_num_items(self) -> int:
-        """
-        Returns the number of unique items.
-        """
-        return len(self.item_hashmap)
+    @property
+    def num_users(self) -> int:
+        return len(self.hashmaps['user'])
 
-    def __getitem__(self, idx: int) -> tuple:
-        """
-        Retrieves the user_id, item_id, and rating for a given index.
+    @property
+    def num_items(self) -> int:
+        return len(self.hashmaps['item'])
 
-        Args:
-            idx (int): Index of the sample to retrieve.
+    @property
+    def num_categories(self) -> int:
+        return len(self.hashmaps['category'])
 
-        Returns:
-            tuple: (user_id, item_id, rating) for the given index.
-        """
-        user_id = self.user_hashmap[self.users[idx]]
-        item_id = self.item_hashmap[self.items[idx]]
-        rating = torch.tensor(self.y_rating[idx], dtype=torch.float32)
-
-        return user_id, item_id, rating
+    @property
+    def num_stores(self) -> int:
+        return len(self.hashmaps['store'])
 
 
-if __name__ == "__main__":
-    # Test
-    path = "insert/path/here"
-    df = pd.read_csv(path)
-    dataset = AmazonDataset(df)
-    print(dataset.get_num_items())
-    print(dataset.get_num_users())
-    print(dataset[0])

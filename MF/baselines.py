@@ -72,11 +72,11 @@ def calculate_bias_combinations(df_train, df_val, df_metadata):
 
 if __name__ == "__main__":
     # Load data
-    df = pd.read_csv("data/user_item_rating_train.csv")
+    df = pd.read_csv("../data/user_item_rating_train.csv")
     df_train, df_val = regression_split_train_validation(df)
 
     # Load and preprocess metadata
-    df_metadata = load_metadata(r"C:\Users\User\PycharmProjects\amazonRecSys\data\items_metadata.jsonl")
+    df_metadata = load_metadata(r"/data/items_metadata.jsonl")
     df_metadata = preprocess_metadata(df_metadata)
 
     # Calculate all bias combinations

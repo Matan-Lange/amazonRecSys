@@ -5,104 +5,87 @@ from tqdm import tqdm
 
 
 class Trainer:
-    def __init__(self, model, train_dataset, val_dataset, batch_size=320, lr=0.001, num_epochs=10, weight_decay=1e-5,
-                 device='cuda'):
+    def __init__(self, model, train_dataset, val_dataset, config):
         """
-        Initializes the Trainer with model, training and validation datasets, and training parameters.
-
-        Args:
-            model (nn.Module): The matrix factorization model
-            train_dataset (Dataset): The training dataset.
-            val_dataset (Dataset): The validation dataset.
-            batch_size (int): Batch size for training.
-            lr (float): Learning rate for the optimizer.
-            num_epochs (int): Number of epochs to train.
-            device (str): Device to run the training on ('cuda' or 'cpu').
+        Initialize trainer with wandb config
         """
-        self.model = model.to(device)
-        self.batch_size = batch_size
-        self.lr = lr
-        self.weight_decay = weight_decay
+        self.model = model.to(config.device)
+        self.batch_size = config.batch_size
+        self.lr = config.learning_rate
+        self.weight_decay = config.weight_decay
         self.train_dataloader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
-        self.val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        self.val_dataloader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
         self.criterion = torch.nn.MSELoss()
-        # weight_decay is better then L2 with Adam
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
-        self.num_epochs = num_epochs
-        self.device = device
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        self.num_epochs = config.epochs
+        self.device = config.device
+        self.step = 0
+
+    def calculate_rmse(self, predictions, targets):
+        """Calculate RMSE between predictions and targets"""
+        return torch.sqrt(torch.mean((predictions - targets) ** 2))
 
     def train(self):
-        """
-        Trains the model and logs the loss to wandb.
-        """
-        wandb.init(project="matrix-factorization", config={
-            "learning_rate": self.lr,
-            "weight_decay": self.weight_decay,
-            "batch_size": self.batch_size,
-            "num_epochs": self.num_epochs
-        })
+        """Train model with wandb sweep"""
         for epoch in range(self.num_epochs):
             self.model.train()
             total_train_loss = 0
-            for user_id, item_id, rating in tqdm(self.train_dataloader):
-                user_id, item_id, rating = user_id.to(self.device), item_id.to(self.device), rating.to(self.device)
+            all_train_preds = []
+            all_train_targets = []
+
+            for batch in tqdm(self.train_dataloader):
+                user_id, item_id, category_id, store_id, rating = [x.to(self.device) for x in batch]
+
                 self.optimizer.zero_grad()
-                prediction = self.model(user_id, item_id)
+                prediction = self.model(user_id, item_id, category_id, store_id)
                 loss = self.criterion(prediction, rating)
                 loss.backward()
                 self.optimizer.step()
-                total_train_loss += loss.item()
 
+                step = self.step + 1
+                wandb.log({"train_step_loss": loss.item(), "step": step})
+
+                total_train_loss += loss.item()
+                all_train_preds.extend(prediction.detach())
+                all_train_targets.extend(rating.detach())
+
+            # Calculate training metrics
             avg_train_loss = total_train_loss / len(self.train_dataloader)
-            print(f"Epoch {epoch + 1}/{self.num_epochs}, Training Loss: {avg_train_loss:.4f}")
+            train_rmse = self.calculate_rmse(
+                torch.tensor(all_train_preds),
+                torch.tensor(all_train_targets)
+            )
 
             # Validation step
             self.model.eval()
             total_val_loss = 0
-            with torch.no_grad():
-                for user_id, item_id, rating in tqdm(self.val_dataloader):
-                    user_id, item_id, rating = user_id.to(self.device), item_id.to(self.device), rating.to(self.device)
-                    prediction = self.model(user_id, item_id)
-                    loss = self.criterion(prediction, rating)
-                    total_val_loss += loss.item()
+            all_val_preds = []
+            all_val_targets = []
 
+            with torch.no_grad():
+                for batch in tqdm(self.val_dataloader):
+                    user_id, item_id, category_id, store_id, rating = [x.to(self.device) for x in batch]
+                    prediction = self.model(user_id, item_id, category_id, store_id)
+                    loss = self.criterion(prediction, rating)
+
+                    total_val_loss += loss.item()
+                    all_val_preds.extend(prediction.cpu())
+                    all_val_targets.extend(rating.cpu())
+
+            # Calculate validation metrics
             avg_val_loss = total_val_loss / len(self.val_dataloader)
-            print(f"Epoch {epoch + 1}/{self.num_epochs}, Validation Loss: {avg_val_loss:.4f}")
+            val_rmse = self.calculate_rmse(
+                torch.tensor(all_val_preds),
+                torch.tensor(all_val_targets)
+            )
 
             # Log metrics to wandb
-            wandb.log({"epoch": epoch + 1, "train_loss": avg_train_loss, "val_loss": avg_val_loss})
+            wandb.log({
+                "epoch": epoch + 1,
+                "train_loss": avg_train_loss,
+                "train_rmse": train_rmse,
+                "val_loss": avg_val_loss,
+                "val_rmse": val_rmse
+            })
 
-        torch.save(self.model.state_dict(), "mf_model.pth")
-
-
-if __name__ == "__main__":
-    # train model
-    from dotenv import load_dotenv
-
-    load_dotenv()
-    import pandas as pd
-    from utils import regression_split_train_validation
-    from MF.dataset import AmazonDataset
-
-    df = pd.read_csv("../data/user_item_rating_train.csv")
-
-    df_train, df_val = regression_split_train_validation(df)
-
-    train_dataset = AmazonDataset(df_train)
-    val_dataset = AmazonDataset(df_val)
-
-    # validate that all items in val set are in train set
-    val_items = set(df_val['parent_asin'].unique())
-    train_items = set(df_train['parent_asin'].unique())
-    print(val_items.issubset(train_items))
-    print(train_dataset.get_num_items())
-    print(train_dataset.get_num_users())
-    print(val_dataset.get_num_items())
-    print(val_dataset.get_num_users())
-    from MF.MF_model import MfModel
-
-    model = MfModel(train_dataset.get_num_users(), train_dataset.get_num_items(), emb_dim=50)
-
-    trainer = Trainer(model, train_dataset, val_dataset, batch_size=1024, lr=0.001, num_epochs=40,
-                      weight_decay=1e-5)
-    trainer.train()
+        return val_rmse
