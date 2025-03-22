@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import torch.nn.init as init
 
+
 class MfModel(nn.Module):
     def __init__(self, num_users, num_items, num_categories, num_stores, emb_dim, biases=None):
         """
@@ -18,7 +19,7 @@ class MfModel(nn.Module):
         super().__init__()
         self.biases = biases if biases else []
 
-        #user item embeddings
+        # user item embeddings
         self.user_emb = nn.Embedding(num_users, emb_dim)
         self.item_emb = nn.Embedding(num_items, emb_dim)
 
@@ -39,7 +40,7 @@ class MfModel(nn.Module):
         for layer in self.bias_layers.values():
             init.constant_(layer.weight, 0.0)
 
-    def forward(self, user, item, category=None, store=None):
+    def forward(self, batch):
         """
         Forward pass incorporating selected biases.
 
@@ -49,21 +50,26 @@ class MfModel(nn.Module):
             category (Tensor, optional): Category indices
             store (Tensor, optional): Store indices
         """
+        user_idx = batch['user_idx']
+        item_idx = batch['item_idx']
+        category_idx = batch['category_idx']
+        store_idx = batch['store_idx']
+
         # Base matrix factorization
-        user_emb = self.user_emb(user)
-        item_emb = self.item_emb(item)
+        user_emb = self.user_emb(user_idx)
+        item_emb = self.item_emb(item_idx)
         element_product = (user_emb * item_emb).sum(1)
 
         # Add configured biases
         bias_sum = torch.zeros_like(element_product)
         if 'user' in self.biases:
-            bias_sum += self.bias_layers['user'](user).squeeze()
+            bias_sum += self.bias_layers['user'](user_idx).squeeze()
         if 'item' in self.biases:
-            bias_sum += self.bias_layers['item'](item).squeeze()
-        if 'category' in self.biases and category is not None:
-            bias_sum += self.bias_layers['category'](category).squeeze()
-        if 'store' in self.biases and store is not None:
-            bias_sum += self.bias_layers['store'](store).squeeze()
+            bias_sum += self.bias_layers['item'](item_idx).squeeze()
+        if 'category' in self.biases and category_idx is not None:
+            bias_sum += self.bias_layers['category'](category_idx).squeeze()
+        if 'store' in self.biases and store_idx is not None:
+            bias_sum += self.bias_layers['store'](store_idx).squeeze()
 
         logit = element_product + bias_sum
         rating = torch.sigmoid(logit) * 4 + 1
