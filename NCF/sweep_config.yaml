@@ -1,0 +1,21 @@
+program: NCF/run_sweep.py
+command:
+  - /usr/bin/python3 # change this to the path of venv
+  - ${program}
+method: random
+metric:
+  goal: minimize
+  name: val_loss
+parameters:
+  batch_size:
+    values: [ 1024 ]
+  epochs:
+    value: 4
+  learning_rate:
+    values: [ 0.01, 0.001, 0.0001 ]
+  emb_dim:
+    values: [ 8, 16, 32,64 ]
+  weight_decay:
+    values: [ 0.5,0.1.0.01 ]
+  image_emb:
+    values:['fashion_clip','dinov2']

@@ -144,10 +144,7 @@ def run_downloader(csv_path: str,
 
 
 if __name__ == "__main__":
-    import os
-
-    print(len(os.listdir('images')))
-    csv_file = '/tmp/data/recsys_data_and_test_files/images_urls.csv'
+    csv_file = r'C:\Users\User\PycharmProjects\amazonRecSys\data\images_urls.csv'
     run_downloader(
         csv_file,
         'images',
