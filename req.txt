@@ -1,0 +1,9 @@
+torch
+wandb
+pandas
+tqdm
+pillow
+aiohttp
+aiofiles
+transformers
+python-dotenv

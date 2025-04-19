@@ -1,0 +1,29 @@
+# Neural Collaborative Filtering sweep configuration
+
+program: scripts/train.py
+method: random
+metric:
+  goal: minimize
+  name: val_rmse
+
+parameters:
+  model_type:
+    value: ncf
+  trainer_type:
+    value: ncf
+  scenario:
+    value: warm
+  
+  # Hyperparameters to sweep
+  batch_size:
+    values: [512, 1024, 2048]
+  epochs:
+    value: 15
+  learning_rate:
+    distribution: log_uniform_values
+    min: 0.0001
+    max: 0.001
+  weight_decay:
+    values: [0.00001, 0.0001, 0.001]
+  image_model:
+    value: fashion_clip

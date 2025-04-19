@@ -1,0 +1,14 @@
+# Neural Collaborative Filtering model configuration
+
+# Model parameters
+model_type: ncf
+trainer_type: sampling
+scenario: warm
+
+# Hyperparameters
+emb_dim: 16
+batch_size: 1024
+learning_rate: 0.0005
+weight_decay: 0.1
+epochs: 15
+image_model: fashion_clip
