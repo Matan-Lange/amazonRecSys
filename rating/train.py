@@ -3,8 +3,9 @@ import argparse
 import torch
 import wandb
 import yaml
+import pandas as pd
 from dotenv import load_dotenv
-from pathlib import Path
+from tqdm import tqdm
 
 # Load environment variables
 load_dotenv()
@@ -87,7 +88,7 @@ def train(args):
             item_embeddings.load_state_dict(torch.load(embeddings_path))
             model = model_class(
                 num_users=train_dataset.num_users,
-                item_embbeings=item_embeddings
+                item_embeddings=item_embeddings
             )
         else:
             model = model_class(
@@ -118,6 +119,69 @@ def train(args):
 
     # Log final results
     wandb.log({"final_val_rmse": final_rmse})
+
+    # ===== PREDICTION STEP =====
+    # Load the best model weights
+    best_model_path = trainer.best_model_path
+    model.load_state_dict(torch.load(best_model_path))
+    model.to(device)
+    model.eval()
+
+    # Create dataloader for test set
+    test_dataloader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=config.batch_size,
+        shuffle=False,
+        collate_fn=trainer.collate_fn
+    )
+
+    # Make predictions
+    all_predictions = []
+    all_user_ids = []
+    all_item_ids = []
+
+    with torch.no_grad():
+        for batch in tqdm(test_dataloader, desc="Predicting on test set"):
+            batch = {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
+            predictions = model(batch)
+
+            # Get original user and item IDs
+            user_indices = batch['user_idx'].cpu().numpy()
+            item_indices = batch['item_idx'].cpu().numpy()
+
+            # Convert indices back to original IDs
+            user_id_map = {idx: id for id, idx in train_dataset.hashmaps['user'].items()}
+            item_id_map = {idx: id for id, idx in train_dataset.hashmaps['item'].items()}
+
+            user_ids = [user_id_map[idx] for idx in user_indices]
+            item_ids = [item_id_map[idx] for idx in item_indices]
+
+            all_predictions.extend(predictions.cpu().numpy())
+            all_user_ids.extend(user_ids)
+            all_item_ids.extend(item_ids)
+
+    # Create DataFrame with predictions
+
+    df_predictions = pd.DataFrame({
+        'user_id': all_user_ids,
+        'parent_asin': all_item_ids,
+        'rating': all_predictions
+    })
+
+    # Save predictions to CSV
+    output_path = f"{args.model_type}_{args.scenario}_predictions.csv"
+    df_predictions.to_csv(output_path, index=False)
+
+    # Upload predictions file to wandb as an artifact
+    predictions_artifact = wandb.Artifact(
+        name=f"{args.model_type}_{args.scenario}_predictions_{wandb.run.id}",
+        type="predictions",
+        description=f"Predictions for {args.model_type} model on {args.scenario} scenario"
+    )
+    predictions_artifact.add_file(output_path)
+    wandb.log_artifact(predictions_artifact)
+
+    print(f"Predictions saved to {output_path} and uploaded to wandb")
 
     print(f"Training completed with final RMSE: {final_rmse:.4f}")
     return final_rmse
