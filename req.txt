@@ -7,3 +7,6 @@ aiohttp
 aiofiles
 transformers
 python-dotenv
+pyarrow==19.0.1
+scikit-learn
+polars

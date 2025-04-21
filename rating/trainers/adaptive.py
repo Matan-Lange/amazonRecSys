@@ -107,7 +107,7 @@ class FrequencyAdaptiveTrainer(WeightedTrainer):
         )
         
         # Compute item frequency bins for analysis
-        self.head_items = set(idx for idx, freq in self.item_freq.items() if freq >= 20)
+        self.head_items = set(idx for idx, freq in self.item_freq.items() if freq >= 1000)
         self.tail_items = set(idx for idx, freq in self.item_freq.items() if freq < 5)
         
         # Huber loss delta parameter
@@ -167,40 +167,40 @@ class FrequencyAdaptiveTrainer(WeightedTrainer):
             # Weighted-Huber loss
             user_freqs = self.user_freq_tensor[user_ids]
             item_freqs = self.item_freq_tensor[item_ids]
-            weights = 10 / torch.sqrt(user_freqs * item_freqs + 1e-6)
+            weights = 1 / torch.sqrt(item_freqs + 1e-6)
             huber_losses = self.huber_loss(prediction, rating, self.huber_delta)
             loss = torch.mean(weights * huber_losses)
             
-            # Frequency-adaptive L2 regularization
-            l2_reg_loss = 0
-            for name, param in self.model.named_parameters():
-                if 'emb' in name:  # Only apply to embedding layers
-                    if 'user' in name:
-                        # Get user frequencies for the parameters
-                        param_freqs = self.user_freq_tensor[:param.size(0)]
-                        # Expand to match parameter shape
-                        param_freqs = param_freqs.view(-1, 1).expand_as(param)
-                    elif 'item' in name:
-                        # Get item frequencies for the parameters
-                        param_freqs = self.item_freq_tensor[:param.size(0)]
-                        # Expand to match parameter shape
-                        param_freqs = param_freqs.view(-1, 1).expand_as(param)
-                    else:
-                        # For other embeddings, use a constant frequency
-                        param_freqs = torch.ones_like(param)
-                    
-                    # Adaptive L2 regularization: penalize rare items more
-                    adaptive_weight = 1.0 / torch.sqrt(param_freqs + 1e-6)
-                    l2_reg_loss += torch.sum(adaptive_weight * param.pow(2))
-            
+            # # Frequency-adaptive L2 regularization
+            # l2_reg_loss = 0
+            # for name, param in self.model.named_parameters():
+            #     if 'emb' in name:  # Only apply to embedding layers
+            #         if 'user' in name:
+            #             # Get user frequencies for the parameters
+            #             param_freqs = self.user_freq_tensor[:param.size(0)]
+            #             # Expand to match parameter shape
+            #             param_freqs = param_freqs.view(-1, 1).expand_as(param)
+            #         elif 'item' in name:
+            #             # Get item frequencies for the parameters
+            #             param_freqs = self.item_freq_tensor[:param.size(0)]
+            #             # Expand to match parameter shape
+            #             param_freqs = param_freqs.view(-1, 1).expand_as(param)
+            #         else:
+            #             # For other embeddings, use a constant frequency
+            #             param_freqs = torch.ones_like(param)
+            #
+            #         # Adaptive L2 regularization: penalize rare items more
+            #         adaptive_weight = 1.0 / torch.sqrt(param_freqs + 1e-6)
+            #         l2_reg_loss += torch.sum(adaptive_weight * param.pow(2))
+            #
             # Add regularization to loss
-            loss += self.l2_reg * l2_reg_loss
+            #loss += self.l2_reg * l2_reg_loss
 
             wandb.log({
                 "avg_sample_weight": weights.mean().item(),
                 "max_sample_weight": weights.max().item(),
                 "min_sample_weight": weights.min().item(),
-                "l2_reg_loss": l2_reg_loss.item()
+                #"l2_reg_loss": l2_reg_loss.item()
             })
 
             loss.backward()

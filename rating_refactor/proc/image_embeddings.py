@@ -10,14 +10,12 @@ from tqdm import tqdm
 
 
 class ImageDataset(torch.utils.data.Dataset):
-    def __init__(self, image_dir: str, image_df_path: str, item_map: dict) -> None:
+    def __init__(self, image_dir: str, image_df_path: str) -> None:
         self.image_dir = image_dir
         self.image_df = pd.read_csv(image_df_path)
         self.image_df['image_path'] = self.image_df.apply(
             lambda x: os.path.join(image_dir, f"{x['parent_asin']}.{x['image_format']}"), axis=1
         )
-        self.image_df['item_idx'] = self.image_df['parent_asin'].map(item_map)
-
 
     def __len__(self):
         return len(self.image_df)
@@ -28,24 +26,24 @@ class ImageDataset(torch.utils.data.Dataset):
 
         if not os.path.isfile(image_path):
             print(f"Image file not found: {image_path}")
-            # dummy image
-            # Todo - check if we can find images
+            # dummy image if image not found
             image = Image.new('RGB', (224, 224), color='black')
         else:
             image = Image.open(image_path).convert('RGB')
+
         return {
             'image': image,
-            'item_idx': row['item_idx']
+            'parent_asin': row['parent_asin']
         }
 
     @staticmethod
     def collate_fn(batch):
         images = [item['image'] for item in batch]
-        item_idx = [int(item['item_idx']) for item in batch]
+        parent_asin = [item['parent_asin'] for item in batch]
 
         return {
             'image': images,
-            'item_idx': item_idx
+            'parent_asin': parent_asin
         }
 
 
@@ -72,7 +70,7 @@ class DinoV2Embedding(ImageEmbedding):
         with torch.no_grad():
             outputs = self.model(**inputs)
             embeddings = outputs.last_hidden_state[:, 0, :]
-        return embeddings
+        return embeddings.cpu()
 
     def get_latent_dim(self) -> int:
         return self.model.config.hidden_size
@@ -90,64 +88,50 @@ class FashionClipImageEmbedding(ImageEmbedding):
         inputs = self.processor(images, return_tensors="pt").to(self.device)
         with torch.no_grad():
             embeddings = self.model.get_image_features(**inputs)
-        return embeddings
+        return embeddings.cpu()
 
     def get_latent_dim(self) -> int:
         return self.model.config.projection_dim
 
 
-def image_embedding_factory(model_name: str) -> ImageEmbedding:
-    if model_name == 'dinov2':
-        return DinoV2Embedding()
-    elif model_name == 'fashion_clip':
-        return FashionClipImageEmbedding()
-    else:
-        raise ValueError(f"Unknown model name: {model_name}")
-
-
-def create_image_embeddings(image_dir: str,
-                            image_df_path: str,
-                            model_name: str,
-                            item_map: dict) -> None:
-    dataset = ImageDataset(image_dir, image_df_path, item_map)
+def create_image_embeddings(image_dir: str, image_df_path: str) -> None:
+    dataset = ImageDataset(image_dir, image_df_path)
     dataloader = DataLoader(dataset,
-                            batch_size=512,
+                            batch_size=1024,
                             shuffle=False,
                             num_workers=20,
                             collate_fn=ImageDataset.collate_fn)
-    embedding_model = image_embedding_factory(model_name)
 
-    emb_store = nn.Embedding(len(item_map), embedding_model.get_latent_dim())
-    emb_store.weight.requires_grad = False
+    dino = DinoV2Embedding()
+    fashion_clip = FashionClipImageEmbedding()
 
-    device = next(embedding_model.model.parameters()).device
-
+    dino_embeddings = []
+    fashion_clip_embeddings = []
+    parent_asins = []
     for batch in tqdm(dataloader):
         images = batch['image']
-        item_idx = batch['item_idx']
-        embeddings = embedding_model.embed(images)
-        # index tensor and move to correct device
-        idx_tensor = torch.tensor([int(idx) for idx in item_idx], dtype=torch.long).to(device)
-        emb_store.weight.data[idx_tensor] = embeddings.to(emb_store.weight.device)
+        parent_asin = batch['parent_asin']
 
-    torch.save(emb_store.state_dict(), f"{model_name}_embeddings.pt")
-    return emb_store
+        dino_embedding = dino.embed(images)
+        fashion_clip_embedding = fashion_clip.embed(images)
+
+        for i in range(len(parent_asin)):
+            dino_embeddings.append(dino_embedding[i])
+            fashion_clip_embeddings.append(fashion_clip_embedding[i])
+            parent_asins.append(parent_asin[i])
+
+    df = pd.DataFrame({
+        'parent_asin': parent_asins,
+        'dino_embedding': [emb.numpy() for emb in dino_embeddings],
+        'fashion_clip_embedding': [emb.numpy() for emb in fashion_clip_embeddings]
+    })
+
+    df.to_parquet('image_embeddings.parquet', index=False)
 
 
 if __name__ == "__main__":
     import os
     from dotenv import load_dotenv
+
     load_dotenv()
-    from rating.datasets import DatasetFactory
-
-    # insert paths here
-    train_path = os.getenv("TRAIN_PATH")
-    test_path = os.getenv("TEST_PATH")
-    metadata_path = os.getenv("METADATA_PATH")
-    image_dir = os.getenv("IMAGES_DIR")
-    image_df_path = os.getenv("IMAGES_DF_PATH")
-
-    factory = DatasetFactory(train_path, test_path, metadata_path)
-    train_dataset, val_dataset, test_dataset = factory.create_datasets()
-    print(len(train_dataset.hashmaps['item']))
-    create_image_embeddings(image_dir, image_df_path, 'fashion_clip', train_dataset.hashmaps['item'])
+    create_image_embeddings(image_dir=os.getenv("IMAGES_DIR"), image_df_path=os.getenv("IMAGES_DF_PATH"))

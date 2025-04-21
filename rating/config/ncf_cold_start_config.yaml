@@ -10,6 +10,6 @@ emb_dim: 16
 batch_size: 1024
 learning_rate: 0.0005
 weight_decay: 0.1
-epochs: 15
+epochs: 1
 image_model: fashion_clip
 test_ratio: 0.2

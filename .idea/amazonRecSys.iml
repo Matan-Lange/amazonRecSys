@@ -4,7 +4,7 @@
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/venv_RS_project" />
     </content>
-    <orderEntry type="jdk" jdkName="Remote Python 3.10.12 (sftp://root@50.173.30.254:24366/usr/bin/python3)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Remote Python 3.10.12 (sftp://root@79.116.20.87:35509/root/.virtualenvs/amazonRecSys/bin/python)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

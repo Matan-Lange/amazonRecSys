@@ -2,14 +2,13 @@
 
 # Model parameters
 model_type: ncf
-trainer_type: sampling
+trainer_type: base
 scenario: warm
 
 # Hyperparameters
-emb_dim: 8
+emb_dim: 32
 batch_size: 1024
 learning_rate: 0.0005
-weight_decay: 0.2
+weight_decay: 0.01
 epochs: 20
-image_model: fashion_clip
 dropout_rate: 0.2
