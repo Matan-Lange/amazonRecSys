@@ -73,6 +73,7 @@ def train(args):
             self.epochs = args.epochs
             self.device = device
             self.dropout_rate = args.dropout_rate
+            self.scenario = args.scenario
 
     config = Config(args, device)
     trainer_class = get_trainer_class(args.trainer_type)

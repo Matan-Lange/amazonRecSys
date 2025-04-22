@@ -6,9 +6,9 @@ trainer_type: base
 scenario: warm
 
 # Hyperparameters
-emb_dim: 32
-batch_size: 1024
-learning_rate: 0.0005
-weight_decay: 0.01
-epochs: 20
-dropout_rate: 0.2
+emb_dim: 64
+batch_size: 8192 #8192
+learning_rate: 0.001
+weight_decay: 0.00001 #1e-5
+epochs: 4
+dropout_rate: 0

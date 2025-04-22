@@ -27,6 +27,7 @@ class NCFModel(nn.Module):
                   "dino_embedding": nn.Embedding(num_items, 768),
                   "text_embeddings": nn.Embedding(num_items, 1024),
                   "fashion_clip_embedding": nn.Embedding(num_items, 512),
+                  "category_vector": nn.Embedding(num_items, 1103)
                 }
             num_categories: size of the category vocabulary
             embed_dim: target dimension for user & item vectors
@@ -73,13 +74,7 @@ class NCFModel(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
         self.output = nn.Linear(mlp_dims[-1], 1)
 
-    def forward(
-            self,
-            # user_idx: torch.LongTensor,  # (batch,)
-            # item_idx: torch.LongTensor,  # (batch,)
-            # cat_multihot: torch.LongTensor  # (batch, num_categories), 0/1 entries
-            batch
-    ) -> torch.FloatTensor:
+    def forward(self,batch) -> torch.FloatTensor:
 
         user_idx = batch['user_idx']
         item_idx = batch['item_idx']

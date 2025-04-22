@@ -43,6 +43,7 @@ class BaseTrainer:
         self.batch_size = config.batch_size
         self.lr = config.learning_rate
         self.weight_decay = config.weight_decay
+        self.scenario = config.scenario
         self.train_dataloader = self._create_dataloader(train_dataset, shuffle=True)
         self.val_dataloader = self._create_dataloader(val_dataset, shuffle=False)
         self.test_dataset = test_dataset
@@ -492,8 +493,10 @@ class BaseTrainer:
         with torch.no_grad():
             for batch in tqdm(self.test_dataloader, desc="Testing"):
                 # Process batch
+                user_ids = batch['user_id']
+                parent_asin = batch['parent_asin']
                 batch = self.process_batch(batch)
-                user_ids = batch['user_idx']
+
                 item_ids = batch['item_idx']
                 rating = batch['rating']
 
@@ -502,8 +505,8 @@ class BaseTrainer:
 
                 # Collect metrics
                 all_test_preds.extend(prediction.cpu().numpy())
-                all_user_ids.extend(batch['user_id'].cpu().numpy())
-                all_item_ids.extend(batch['parent_asin'].cpu().numpy())
+                all_user_ids.extend(user_ids)
+                all_item_ids.extend(parent_asin)
 
         predictions_df = pd.DataFrame({
             'user_id': all_user_ids,
@@ -520,11 +523,11 @@ class BaseTrainer:
 
         # log csv to wandb
         predictions_artifact = wandb.Artifact(
-            name=f"{self.model_name}_{args.scenario}_predictions_{wandb.run.id}",
+            name=f"{self.model_name}_{self.scenario}_predictions_{wandb.run.id}",
             type="predictions",
             description=f"Predictions for {self.model_name}"
         )
         predictions_artifact.add_file(output_file)
         wandb.log_artifact(predictions_artifact)
 
-        return test_rmse
+

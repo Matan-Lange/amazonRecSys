@@ -109,7 +109,7 @@ cols = [
 
 
 emb_layers = build_all_embeddings(
-    df = pd.read_parquet("/tmp/pycharm_project_190/rating_refactor/proc/metadata.parquet"),
+    df = pd.read_parquet("/tmp/pycharm_project_190/preproc_data/metadata.parquet"),
     index_col="item_idx",
     vector_cols=cols,
     freeze=True
