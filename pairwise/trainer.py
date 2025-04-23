@@ -23,11 +23,13 @@ class ContrastiveTrainer:
             model: torch.nn.Module,
             train_dataset: torch.utils.data.Dataset,
             val_dataset: torch.utils.data.Dataset,
+            test_dataset: torch.utils.data.Dataset,
             config: Any
     ):
         self.model = model.to(config.device)
-        self.train_dataloader = self._create_dataloader(train_dataset, config.batch_size, shuffle=True)
+        self.train_dataloader = self._create_dataloader(train_dataset, config.batch_size, shuffle=False)
         self.val_dataloader = self._create_dataloader(val_dataset, config.batch_size, shuffle=False)
+        self.test_dataloader = self._create_dataloader(test_dataset, config.batch_size, shuffle=False)
         self.optimizer = AdamW(self.model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
         self.scheduler = OneCycleLR(
             self.optimizer,
@@ -86,7 +88,6 @@ class ContrastiveTrainer:
         total_loss = 0
 
         for batch in tqdm(self.train_dataloader, desc=f"Epoch {epoch + 1}/{self.epochs}"):
-
             total_correct = 0
             total_samples = 0
 
@@ -101,11 +102,6 @@ class ContrastiveTrainer:
             positive_batch = self.process_batch(positive_batch)
             negative_batch = self.process_batch(negative_batch)
 
-            print("Batch sample:")
-            print("user_idx:", batch['user_idx'][0])
-            print("positive_item_idx:", batch['positive_item_idx'][0].item())
-            print("negative_item_idx:", batch['negative_item_idx'][0].item())
-
             pos_score = self.model(positive_batch)  # shape (B,)
             neg_score = self.model(negative_batch)
 
@@ -119,7 +115,7 @@ class ContrastiveTrainer:
             correct = (pos_score > neg_score).sum()
 
             batch_accurcy = correct / len(pos_score)
-            wandb.log({"train_loss": loss.item(), "step": self.step,'train_accuracy': batch_accurcy})
+            wandb.log({"train_loss": loss.item(), "step": self.step, 'train_accuracy': batch_accurcy})
             self.step += 1
             total_loss += loss.item()
 
@@ -146,7 +142,6 @@ class ContrastiveTrainer:
                 pos_score = self.model(positive_batch)  # shape (B,)
                 neg_score = self.model(negative_batch)
 
-
                 correct = (pos_score > neg_score).sum()
                 total_correct += correct
                 total_samples += len(pos_score)
@@ -170,3 +165,58 @@ class ContrastiveTrainer:
 
         print(f"Best validation accuracy: {best_acc:.4f}")
         return best_acc
+
+    def test(self):
+
+        # Load best model weights
+        if os.path.exists(self.best_model_path):
+            self.model.load_state_dict(torch.load(self.best_model_path))
+            print(f"Loaded best model from {self.best_model_path}")
+
+        self.model.eval()
+        user_ids = []
+        item_0_parent_asin = []
+        item_1_parent_asin = []
+        user_preferrd_item = []
+
+        with torch.no_grad():
+            for batch in tqdm(self.test_dataloader, desc="Testing"):
+                user_id = batch['user_id']
+                item_0 = batch['item_0']
+                item_1 = batch['item_1']
+
+                item_0_batch = {k: v.clone() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                item_1_batch = {k: v.clone() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+
+                # Reassign correct items
+                item_0_batch['item_idx'] = item_0_batch['item_0_idx']
+                item_1_batch['item_idx'] = item_1_batch['item_1_idx']
+
+                # Move to device
+                item_0_batch = self.process_batch(item_0_batch)
+                item_1_batch = self.process_batch(item_1_batch)
+
+                item_0_score = self.model(item_0_batch)
+                item_1_score = self.model(item_1_batch)
+
+                #comapre item_0 and item_1 scores
+                item_class = torch.where(item_0_score > item_1_score, 1, 0)
+
+                user_ids.extend(user_id)
+                item_0_parent_asin.extend(item_0)
+                item_1_parent_asin.extend(item_1)
+                user_preferrd_item.extend(item_class.tolist())
+
+        test_results = pd.DataFrame({
+            'user_id': user_ids,
+            'item_0': item_0_parent_asin,
+            'item_1': item_1_parent_asin,
+            'class': user_preferrd_item
+        })
+
+        test_results.to_csv('pairwise_warm_test_results.csv', index=False)
+        # save in wandb artifact
+        artifact = wandb.Artifact('pairwise_warm_test_results', type='dataset')
+        artifact.add_file('pairwise_warm_test_results.csv')
+        wandb.log_artifact(artifact)
+        print("Test results saved to test_results.csv")

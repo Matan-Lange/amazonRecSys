@@ -9,12 +9,13 @@ from torch.nn.functional import dropout
 # Load environment variables
 load_dotenv()
 
-# Import the NCF model from rating_refactor
+# use same model from ratings
+from rating_refactor.models import MFModel
 from rating_refactor.models import NCFModel
 
-# Import the ContrastiveTrainer and PairwiseDataset
+# trainer and datasets
 from pairwise.trainer import ContrastiveTrainer
-from pairwise.dataset import PairwiseDataset
+from pairwise.dataset import PairwiseDataset, PairwiseTestDataset
 
 
 def train(args):
@@ -26,10 +27,12 @@ def train(args):
     # Load the datasets
     train_df = pd.read_csv(args.train_path)
     val_df = pd.read_csv(args.val_path)
+    test_df = pd.read_csv(args.test_path)
 
     # Create datasets
     train_dataset = PairwiseDataset(train_df)
     val_dataset = PairwiseDataset(val_df)
+    test_dataset = PairwiseTestDataset(test_df)
 
     # Get the number of users from the dataset
     num_users = train_df['user_idx'].max() + 1
@@ -43,14 +46,32 @@ def train(args):
     #     embeddings=emb_layers,  # Pass the embeddings explicitly
     #     dropout_rate = 0.2
     # )
-    from rating_refactor.models import MFModel
+
+    class MfPairwiseDataset(MFModel):
+        def forward(self, batch):
+            # Original code
+            user_idx = batch['user_idx']
+            item_idx = batch['item_idx']
+            user_emb = self.user_emb(user_idx)
+            item_emb = self.item_emb(item_idx)
+
+            if self.training:
+                user_emb = self.dropout(user_emb)
+                item_emb = self.dropout(item_emb)
+
+            element_product = (user_emb * item_emb).sum(1)
+            bias_sum = self.get_bias_sum(batch)
+            return element_product + bias_sum
+
     print(f'Number of items: {train_df["positive_item_idx"].max() + 1}')
-    model = MFModel(
+    model = MfPairwiseDataset(
         num_users=num_users,
-        num_items=int(train_df['positive_item_idx'].max() + 1) , #make sure this is int
+        num_items=int(train_df['positive_item_idx'].max() + 1),  # make sure this is int
         embed_dim=args.embed_dim,
-        dropout_rate=0
+        dropout_rate=0,
+        biases=['user', 'item'],
     )
+
     # Create a config object for the trainer
     class Config:
         def __init__(self, args, device):
@@ -60,14 +81,16 @@ def train(args):
             self.epochs = args.epochs
             self.device = device
             self.loss_type = args.loss_type
+            self.warmup_pct = 0.01
 
     config = Config(args, device)
 
     # Initialize the trainer
-    trainer = ContrastiveTrainer(model, train_dataset, val_dataset, config)
+    trainer = ContrastiveTrainer(model, train_dataset, val_dataset, test_dataset, config)
 
     # Train the model
     best_acc = trainer.train()
+    trainer.test()
 
     print(f"Training completed with best validation accuracy: {best_acc:.4f}")
     print(f"Best model saved to: {trainer.best_model_path}")
@@ -85,7 +108,7 @@ def main():
                         help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=0.1,
                         help='Weight decay')
-    parser.add_argument('--epochs', type=int, default=4,
+    parser.add_argument('--epochs', type=int, default=1,
                         help='Number of epochs')
     parser.add_argument('--loss_type', type=str, choices=['cross_entropy', 'bce'], default='cross_entropy',
                         help='Loss function type')
@@ -93,10 +116,13 @@ def main():
     # Paths
     parser.add_argument('--train_path', type=str,
                         default='/tmp/pycharm_project_190/pairwise/train_pairwise.csv',
-                        help='/tmp/pycharm_project_190/pairwise/val_pairwise.csv')
+                        help='Path to train data')
     parser.add_argument('--val_path', type=str,
-                        default='val_pairwise.csv',
+                        default='/tmp/pycharm_project_190/pairwise/val_pairwise.csv',
                         help='Path to validation data')
+    parser.add_argument('--test_path', type=str,
+                        default='/tmp/pycharm_project_190/pairwise/test_pairwise.csv',
+                        help='Path to test data')
 
     args = parser.parse_args()
     print(args)
